@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>多 AI 群聊 · 王承泽的群</title>
+<style>
+  :root{ --bg:#070a14; --card:rgba(10,17,25,.62); --line:rgba(120,160,220,.18); }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+       background:radial-gradient(1200px 700px at 70% -10%,#10203a 0%,var(--bg) 60%);color:#e7eefc;height:100vh;display:flex;flex-direction:column}
+  header{padding:14px 20px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px}
+  header h1{font-size:18px;margin:0;font-weight:700;letter-spacing:.5px}
+  header .sub{font-size:12px;color:#8aa0c4}
+  #members{display:flex;gap:8px;margin-left:auto;flex-wrap:wrap}
+  .mb{display:flex;align-items:center;gap:6px;font-size:12px;padding:4px 10px;border:1px solid var(--line);border-radius:999px;background:var(--card)}
+  .dot{width:9px;height:9px;border-radius:50%}
+  #log{flex:1;overflow-y:auto;padding:18px 20px;display:flex;flex-direction:column;gap:14px}
+  .msg{max-width:78%;padding:10px 14px;border-radius:14px;line-height:1.6;font-size:15px;white-space:pre-wrap;word-break:break-word}
+  .me{align-self:flex-end;background:linear-gradient(135deg,#2b6cff,#1b8cff);color:#fff;border-bottom-right-radius:4px}
+  .ai{align-self:flex-start;background:var(--card);border:1px solid var(--line);border-bottom-left-radius:4px}
+  .who{font-size:12px;opacity:.75;margin-bottom:3px;font-weight:600}
+  .typing{font-style:italic;opacity:.6}
+  footer{padding:14px 20px;border-top:1px solid var(--line);display:flex;gap:10px}
+  #txt{flex:1;resize:none;height:46px;padding:12px 14px;border-radius:12px;border:1px solid var(--line);
+       background:rgba(5,9,18,.7);color:#e7eefc;font-size:15px;outline:none}
+  #txt:focus{border-color:#3b6cff}
+  button{background:#2b6cff;color:#fff;border:0;border-radius:12px;padding:0 22px;font-size:15px;font-weight:600;cursor:pointer}
+  button:disabled{opacity:.5;cursor:default}
+  .status{font-size:12px;color:#8aa0c4;margin-left:8px}
+</style>
+</head>
+<body>
+<header>
+  <h1>🤖 多 AI 群聊</h1>
+  <span class="sub">王承泽的群 · 几个 AI 各聊各的</span>
+  <div id="members"></div>
+</header>
+<div id="log"></div>
+<footer>
+  <textarea id="txt" placeholder="说点什么，群里所有 AI 都会接话…"></textarea>
+  <button id="send">发送</button>
+  <span class="status" id="status">连接中…</span>
+</footer>
+<script>
+const log=document.getElementById('log');
+const membersEl=document.getElementById('members');
+const txt=document.getElementById('txt');
+const sendBtn=document.getElementById('send');
+const statusEl=document.getElementById('status');
+let ws, typingEls={};
+
+function addMsg(name,color,text,cls){
+  const d=document.createElement('div');
+  d.className='msg '+cls;
+  if(name){const w=document.createElement('div');w.className='who';w.style.color=color;w.textContent=name;d.appendChild(w);}
+  const c=document.createElement('div');c.className='body';c.textContent=text;d.appendChild(c);
+  log.appendChild(d);log.scrollTop=log.scrollHeight;return c;
+}
+function scroll(){log.scrollTop=log.scrollHeight;}
+
+function connect(){
+  // 支持子路径部署：从当前页面 pathname 推导 WS 前缀（如 /ai/ → /ai/ws；根路径 → /ws）
+  const base=location.pathname.replace(/\/+$/,'');
+  const wsPath=(base||'')+'/ws';
+  ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+wsPath);
+  ws.onopen=()=>{statusEl.textContent='已连接';sendBtn.disabled=false;};
+  ws.onclose=()=>{statusEl.textContent='断开，重连中…';sendBtn.disabled=true;setTimeout(connect,2000);};
+  ws.onmessage=e=>{
+    const m=JSON.parse(e.data);
+    if(m.type==='members'){
+      membersEl.innerHTML='';
+      m.members.forEach(mem=>{
+        const el=document.createElement('div');el.className='mb';
+        el.innerHTML=`<span class="dot" style="background:${mem.color}"></span>${mem.name} · ${mem.model}`;
+        membersEl.appendChild(el);
+      });
+    } else if(m.type==='history'){
+      m.history.forEach(h=>{
+        if(h.role==='user') addMsg(h.name,'#7fb0ff',h.content,'me');
+        else addMsg(h.name,'#9fb6d8',h.content,'ai');
+      });
+    } else if(m.type==='user_msg'){
+      addMsg(m.name,'#7fb0ff',m.text,'me');
+    } else if(m.type==='start'){
+      if(!typingEls[m.member]){
+        const c=addMsg(m.name,m.color,'…','ai');c.classList.add('typing');typingEls[m.member]=c;
+      }
+    } else if(m.type==='token'){
+      const c=typingEls[m.member];
+      if(c){if(c.textContent==='…')c.textContent='';c.textContent+=m.text;scroll();}
+    } else if(m.type==='done'){
+      delete typingEls[m.member];
+    } else if(m.type==='error'){
+      addMsg(m.member||'系统','#ff6b6b',m.text,'ai');
+    }
+  };
+}
+function send(){
+  const v=txt.value.trim();
+  if(!v)return;
+  ws.send(JSON.stringify({type:'user',text:v}));
+  txt.value='';
+}
+sendBtn.onclick=send;
+txt.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key==='Enter')send();});
+connect();
+</script>
+</body>
+</html>
